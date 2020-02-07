@@ -2,7 +2,7 @@
 Simple ImageJ/Fiji macros to create or adjust selections
 
 <H2>Set Selection based on standard or previous sizes or a trimmed selection</H2>
-<p>This ImageJ/Fiji macro (<a href="https://github.com/peterjlee/asc-ImageJ-selection-utilities" Title = "Applied Superconductivity Center Set Selection or Trim Macro Repository" >link</a>) allows you to make standard size or aspect selections or make selections that are trimmed full-image selections, trimmed to non-background features (binary images only) or trimmed selections. The resulting selection may be saved in the original image directory and reloaded for later reuse. The selection may also be added to the ROI manager and as an overlay. Using this macro makes it much easier to select image details of consistent sizes and shapes.
+<p>This ImageJ/Fiji macro (<a href="https://github.com/peterjlee/asc-ImageJ-selection-utilities" Title = "Applied Superconductivity Center Set Selection or Trim Macro Repository" >link</a>) allows you to make standard size or aspect selections or make selections that are trimmed full-image selections, trimmed to non-background features (binary images only) or trimmed selections. The resulting selection may be saved in the original image directory and reloaded for later reuse. The selection may also be added to the ROI manager and as an overlay. The selected setttings are stored in user preferences and become the default values for the next run.Using this macro makes it much easier to select image details of consistent sizes and shapes.
 </p>
     <p><img src="https://fs.magnet.fsu.edu/~lee/asc/ImageJUtilities/IA_Images/Set_Selection_or_Trim_Menus_705x602.gif" alt="Set standard selection or trimmed selections" height="602"  /></p>
 
