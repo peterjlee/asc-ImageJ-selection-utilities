@@ -1,7 +1,7 @@
 /* Set selection at center of image or selection (if rectangle or oval), or as trim of image or selection
-	v190227 1st version
+	v190227 1st version  Peter J. Lee  Applied Superconductivity Center, National High Magnetic Field Laboratory, Florida State University
 	v190513 Added restore selection and preferences	in imageJ prefs (..\Users\username\.imagej\IJ_Prefs.txt).
-	v190605 All options should now be working.
+	v190605 All options should now be working. v200207 Added new features, updated ASC functions, fixed missing selection path in prefs.
 	*/
 macro "setSelection" {
 	delimiter = "|";
@@ -9,11 +9,14 @@ macro "setSelection" {
 	prefsParaKey = prefsNameKey+"Parameters";
 	prefsValKey = prefsNameKey+"Values";
 	prefsPara = call("ij.Prefs.get", prefsParaKey, "None");
-	prefsVal = call("ij.Prefs.get", prefsValKey, "None");
+	macroName = File.getName(getInfo("macro.filepath"));
+	prefsVal = "" + call("ij.Prefs.get", prefsValKey, "None");
 	prefsParas = split(prefsPara,delimiter);
 	prefsVals = split(prefsVal,delimiter);
 	if (prefsParas.length!=prefsVals.length) {
 		Dialog.create("Prefs mismatch");
+		Dialog.addMessage(prefsParas.length + " Preference Parameters");
+		Dialog.addMessage(prefsVals.length + " Preference Values");
 		options = newArray("Reset prefs", "Continue", "Exit");
 		Dialog.addRadioButtonGroup("Options:", options, 3, 1, "Reset prefs");
 		Dialog.show();
@@ -26,6 +29,7 @@ macro "setSelection" {
 			call("ij.Prefs.set", prefsValKey, "none");
 		}
 	}
+	selName = "enter new name";
 	getDimensions(imageWidth, imageHeight, channels, slices, frames);
 	orAR = imageWidth/imageHeight;
 	selType = selectionType();
@@ -36,8 +40,10 @@ macro "setSelection" {
 		getSelectionBounds(selX, selY, selWidth, selHeight);
 		startX = selX;
 		startY = selY;
-		newW = selWidth;
-		newH = selHeight;
+		newW = round(selWidth);
+		newH = round(selHeight);
+		oldSelName = selectionName;
+		if (oldSelName!="") selName = oldSelName;
 		run("Select None");
 		if (selType==0) selTypeName = "rectangle";
 		else (selType==1) selTypeName = "oval";
@@ -66,13 +72,18 @@ macro "setSelection" {
 	trimL = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"trimL",0));
 	trimT = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"trimT",0));
 	trimB = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"trimB",0));
+	rotS = parseFloat(getPrefsFromParallelArrays(prefsParas,prefsVals,"rotS",0));
+	selName = getPrefsFromParallelArrays(prefsParas,prefsVals,"selName",selName);
+	addOverlay = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addOverlay",false));
+	addROI = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addROI",false));
 	saveSelection = getPrefsFromParallelArrays(prefsParas,prefsVals,"saveSelection",false);
 	lastSelectionPath = getPrefsFromParallelArrays(prefsParas,prefsVals,"selectionPath","None");
 	/* End of Default/Previous value section */
 
-	Dialog.create("Selection choices");
-		if (selType!=-1) Dialog.addMessage("For preset widths the new selection will be centered on the\nthe original selection.\nUse the arrow keys or drag to move the selection after the macro has completed.\n'entry', 'trim' and 'fraction' options allow location input.");
-		else Dialog.addMessage("For preset widths the new selection will be centered on the center of the image.\nUse the arrow keys or drag to move the selection after the macro has completed.\n'entry', 'trim' and 'fraction' options allow location input.");
+	Dialog.create(macroName + ": Selection choices");
+		if (selType!=-1) selectionText = "original selection";
+		else selectionText = "center of the image";
+		Dialog.addMessage("For preset widths the new selection will be centered on the " + selectionText + ".\nUse the arrow keys or drag the selection to move the selection with the mouse \nafter the macro has completed.\nThe 'entry', 'trim' and 'fraction' options also allow pixel coordinate location input.");
 		if(lastSelectionPath=="None") selectionTypes = newArray("rectangle","oval","restore last selection");
 		else selectionTypes = newArray("rectangle","oval","restore last selection","restore last saved selection");
 		iST = indexOfArray(selectionTypes,selTypeName,0);
@@ -88,6 +99,10 @@ macro "setSelection" {
 		orientations = newArray("landscape", "portrait");
 		iOr = indexOfArray(orientations,orientation,0);
 		Dialog.addRadioButtonGroup("Orientations:", orientations, 1, 2, orientations[iOr]);
+		Dialog.addNumber("Selection rotation:",rotS,5,5,"degrees");
+		Dialog.addString("Selection name:",selName,12);
+		Dialog.addCheckbox("Add selection to overlay?", addOverlay);
+		Dialog.addCheckbox("Add selection to ROI manager?", addROI);
 		Dialog.addCheckbox("Save selection in image folder?", saveSelection);
 	Dialog.show();
 	selTypeName = Dialog.getRadioButton();
@@ -105,6 +120,11 @@ macro "setSelection" {
 		selSelWidth = Dialog.getRadioButton();
 		selAR = Dialog.getRadioButton();
 		newOr = Dialog.getRadioButton();
+		rotS = Dialog.getNumber();
+		selName = Dialog.getString();
+		if (selName=="") selName = "enter new name";
+		addOverlay = Dialog.getCheckbox();
+		addROI = Dialog.getCheckbox();
 		saveSelection = Dialog.getCheckbox();
 		if (selSelWidth =="fraction" || selSelWidth =="entry" || selSelWidth =="non-background" || selSelWidth=="trim" ) {
 			if (selSelWidth =="fraction") {
@@ -213,6 +233,15 @@ macro "setSelection" {
 			if (newSelType==0) makeRectangle(startX, startY, newSelWidth, newSelHeight);
 			else makeOval(startX, startY, newSelWidth, newSelHeight);
 		}
+		if (rotS!=0) run("Rotate...", "  angle=&rotS");
+		if (addOverlay){
+			Overlay.addSelection;
+			Overlay.show;
+		}
+		if (addROI) {
+			if (selName!="enter new name") Roi.setName(selName);
+			roiManager("Add");
+		}
 		if(saveSelection){
 			path = getDirectory("image");
 			if (path=="") exit ("path not available");
@@ -222,11 +251,17 @@ macro "setSelection" {
 			selectionPath = path + name + "_selection.roi";
 			saveAs("selection", selectionPath);
 		}
-		setSelectionsParasSt = "aspectR|fractW|fractH|startFractX|startFractY|iDefDimsF|newH|newW|selAR|selTypeName|newSelType|orientation|startX|startY|trimR|trimL|trimT|trimB|saveSelection|selectionPath";
-		setSelectionParas = newArray(aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,saveSelection,selectionPath);
-		setSelectionValuesSt = arrayToString(setSelectionParas,"|");
+		else selectionPath = "None"; /* required for prefs */
+		setSelectionsParasSt = "macroName|aspectR|fractW|fractH|startFractX|startFractY|iDefDimsF|newH|newW|selAR|selTypeName|newSelType|orientation|startX|startY|trimR|trimL|trimT|trimB|rotS|selName|addOverlay|addROI|saveSelection|selectionPath";
+		/* string of parameters separated by | delimiter - make sure first entry is NOT a number to avoid NaN errors */
+		setSelectionValues = newArray(macroName,aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,rotS,selName,addOverlay,addROI,saveSelection,selectionPath);
+		/* array of corresponding to parameter list (in the same order) */
+		setSelectionValuesSt = arrayToString(setSelectionValues,"|");
+		/* Create string of values from values array */
 		call("ij.Prefs.set", prefsParaKey, setSelectionsParasSt);
+		print(setSelectionsParasSt);
 		call("ij.Prefs.set", prefsValKey, setSelectionValuesSt);
+		print(setSelectionValuesSt);
 	}
 	showStatus("setSelection completed");
 	run("Collect Garbage");
@@ -235,18 +270,20 @@ macro "setSelection" {
 		( 8(|)  ( 8(|)  ASC Functions	@@@@@:-)	@@@@@:-)
 	*/
 	function arrayToString(array,delimiters){
-		/* 1st version April 2019 PJL */
+		/* 1st version April 2019 PJL
+			v190722 Modified to handle zero length array */
+		string = "";
 		for (i=0; i<array.length; i++){
-			if (i==0) string = "" + array[0];
+			if (i==0) string += array[0];
 			else  string = string + delimiters + array[i];
 		}
 		return string;
 	}
 	function getPrefsFromParallelArrays (refArray,prefArray,ref,default){
 		/* refArray has a list of parameter names and prefArray has a list of values for those parameters in the same order
-		v190514  1st version v190605 corrected */
+		v190514  1st version v190605 corrected v200207 added array length check in if statement */
 		iPref = indexOfArray(refArray,ref,-1);
-		if (iPref>=0) pref = prefArray[iPref];
+		if (iPref>=0 && prefArray.length>iPref) pref = prefArray[iPref];
 		else pref = default;
 		return pref;
 	}
