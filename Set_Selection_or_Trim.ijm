@@ -1,7 +1,9 @@
 /* Set selection at center of image or selection (if rectangle or oval), or as trim of image or selection
 	v190227 1st version  Peter J. Lee  Applied Superconductivity Center, National High Magnetic Field Laboratory, Florida State University
 	v190513 Added restore selection and preferences	in imageJ prefs (..\Users\username\.imagej\IJ_Prefs.txt).
-	v190605 All options should now be working. v200207 Added new features, updated ASC functions, fixed missing selection path in prefs.
+	v190605 All options should now be working.
+	v200207 Added new features, updated ASC functions, fixed missing selection path in prefs.
+	v200224 Deactivated print debug lines  :-$
 	*/
 macro "setSelection" {
 	delimiter = "|";
@@ -259,9 +261,9 @@ macro "setSelection" {
 		setSelectionValuesSt = arrayToString(setSelectionValues,"|");
 		/* Create string of values from values array */
 		call("ij.Prefs.set", prefsParaKey, setSelectionsParasSt);
-		print(setSelectionsParasSt);
+		// print(setSelectionsParasSt);
 		call("ij.Prefs.set", prefsValKey, setSelectionValuesSt);
-		print(setSelectionValuesSt);
+		// print(setSelectionValuesSt);
 	}
 	showStatus("setSelection completed");
 	run("Collect Garbage");
