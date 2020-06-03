@@ -3,7 +3,7 @@
 	v190513 Added restore selection and preferences	in imageJ prefs (..\Users\username\.imagej\IJ_Prefs.txt).
 	v190605 All options should now be working.
 	v200207 Added new features, updated ASC functions, fixed missing selection path in prefs.
-	v200224 Deactivated print debug lines  :-$
+	v200224 Deactivated print debug lines  :-$ v200526 Just added 128 as a dimension
 	*/
 macro "setSelection" {
 	delimiter = "|";
@@ -36,7 +36,7 @@ macro "setSelection" {
 	orAR = imageWidth/imageHeight;
 	selType = selectionType();
 	/* Provide default or previous values */
-	stdDims = newArray(256,384,512,768,1024,1280,2048,2304,3072,4096);
+	stdDims = newArray(128,256,384,512,768,1024,1280,2048,2304,3072,4096);
 	for (i=0; i<stdDims.length; i++) if(imageWidth<stdDims[i] && imageHeight<stdDims[i]) stdDims = Array.trim(stdDims,i);
 	if (selType==0 || selType==1){
 		getSelectionBounds(selX, selY, selWidth, selHeight);
@@ -266,7 +266,7 @@ macro "setSelection" {
 		// print(setSelectionValuesSt);
 	}
 	showStatus("setSelection completed");
-	run("Collect Garbage");
+	call("java.lang.System.gc");
 }
 	/*
 		( 8(|)  ( 8(|)  ASC Functions	@@@@@:-)	@@@@@:-)
