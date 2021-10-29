@@ -3,20 +3,26 @@
 	v190513 Added restore selection and preferences	in imageJ prefs (..\Users\username\.imagej\IJ_Prefs.txt).
 	v190605 All options should now be working.
 	v200207 Added new features, updated ASC functions, fixed missing selection path in prefs.
-	v200224 Deactivated print debug lines  :-$ v200526 Just added 128 as a dimension
+	v200224 Deactivated print debug lines  :-$ v200526 Just added 128 as a dimension.
+	v210723 Cosmetic tweaks.
+	v210823 Assumes that any selection is relevant for helping determining new selection (not just rectangles and ovals)
+	v210830 Added object bounds as selection option if Table is open and columns BX(px) BY(px) are available
+	v211006 Fixed empty table and box issue
+	v211014 Fixed path issue
+	v211025 Updated functions
 	*/
 macro "setSelection" {
+	macroL = "Set_Selection_or_Trim_v211025.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
 	prefsValKey = prefsNameKey+"Values";
 	prefsPara = call("ij.Prefs.get", prefsParaKey, "None");
-	macroName = File.getName(getInfo("macro.filepath"));
 	prefsVal = "" + call("ij.Prefs.get", prefsValKey, "None");
 	prefsParas = split(prefsPara,delimiter);
 	prefsVals = split(prefsVal,delimiter);
 	if (prefsParas.length!=prefsVals.length) {
-		Dialog.create("Prefs mismatch");
+		Dialog.create("Prefs mismatch: " + macroL);
 		Dialog.addMessage(prefsParas.length + " Preference Parameters");
 		Dialog.addMessage(prefsVals.length + " Preference Values");
 		options = newArray("Reset prefs", "Continue", "Exit");
@@ -34,11 +40,26 @@ macro "setSelection" {
 	selName = "enter new name";
 	getDimensions(imageWidth, imageHeight, channels, slices, frames);
 	orAR = imageWidth/imageHeight;
+	objectsBounds = false;
+	if (Table.size>0){
+		if (Table.get("BX\(px\)", 0)>=0 && Table.get("BY\(px\)", 0)>=0 && Table.get("BoxW\(px\)", 0)>=0 && Table.get("BoxH\(px\)", 0)>=0){
+			objectsBounds = true;
+			BXpxs = Table.getColumn("BX\(px\)");
+			Array.getStatistics(BXpxs, BXpxsMin, BXpxsMax, null, null);
+			iBXpxsMax = indexOfArray(BXpxs, BXpxsMax, -1);
+			BWpxs = BXpxsMax + Table.get("BoxW\(px\)", iBXpxsMax) - BXpxsMin;
+			BYpxs = Table.getColumn("BY\(px\)");
+			Array.getStatistics(BYpxs, BYpxsMin, BYpxsMax, null, null);
+			iBYpxsMax = indexOfArray(BYpxs, BYpxsMax, -1);
+			BHpxs = BYpxsMax + Table.get("BoxH\(px\)", iBYpxsMax) - BYpxsMin;
+			WHDiff = BWpxs - BHpxs;
+		}
+	}
 	selType = selectionType();
 	/* Provide default or previous values */
 	stdDims = newArray(128,256,384,512,768,1024,1280,2048,2304,3072,4096);
 	for (i=0; i<stdDims.length; i++) if(imageWidth<stdDims[i] && imageHeight<stdDims[i]) stdDims = Array.trim(stdDims,i);
-	if (selType==0 || selType==1){
+	if (selType>=0){
 		getSelectionBounds(selX, selY, selWidth, selHeight);
 		startX = selX;
 		startY = selY;
@@ -47,8 +68,8 @@ macro "setSelection" {
 		oldSelName = selectionName;
 		if (oldSelName!="") selName = oldSelName;
 		run("Select None");
-		if (selType==0) selTypeName = "rectangle";
-		else (selType==1) selTypeName = "oval";
+		if (selType==1) selTypeName = "oval";
+		else selTypeName = "rectangle";
 	}
 	else {
 		selTypeName = getPrefsFromParallelArrays(prefsParas,prefsVals,"selTypeName","rectangle");
@@ -82,22 +103,32 @@ macro "setSelection" {
 	lastSelectionPath = getPrefsFromParallelArrays(prefsParas,prefsVals,"selectionPath","None");
 	/* End of Default/Previous value section */
 
-	Dialog.create(macroName + ": Selection choices");
+	Dialog.create(macroL + ": Selection choices");
 		if (selType!=-1) selectionText = "original selection";
 		else selectionText = "center of the image";
 		Dialog.addMessage("For preset widths the new selection will be centered on the " + selectionText + ".\nUse the arrow keys or drag the selection to move the selection with the mouse \nafter the macro has completed.\nThe 'entry', 'trim' and 'fraction' options also allow pixel coordinate location input.");
-		if(lastSelectionPath=="None") selectionTypes = newArray("rectangle","oval","restore last selection");
-		else selectionTypes = newArray("rectangle","oval","restore last selection","restore last saved selection");
+		selectionTypes = newArray("rectangle","oval","restore last selection");
+		if(lastSelectionPath!="None") selectionTypes = Array.concat(selectionTypes,"restore last saved selection");
+		if (objectsBounds){
+			Dialog.addMessage("Object\(s\) bounding box: X1: " + BXpxsMin + ", Y1: " + BYpxsMin + ", Width: " + BWpxs + ", Height: " + BHpxs + ", Width-Height: " + WHDiff
+			+ "\nBounding box overrides other options if selected");
+			selectionTypes = Array.concat(selectionTypes,"bounding box");
+		}
 		iST = indexOfArray(selectionTypes,selTypeName,0);
-		Dialog.addRadioButtonGroup("Selection type \('restore' options restore selections and exit\):", selectionTypes, 2, 2, selectionTypes[iST]);
+		Dialog.addRadioButtonGroup("Selection type \('restore' options restore selections and exit\):", selectionTypes, 1, 4, selectionTypes[iST]);
+		if (objectsBounds){
+			Dialog.addNumber("Selection width expansion if bounding box selected",0,0,6,"pixels");
+			Dialog.addNumber("Selection height expansion if bounding box selected",0,0,6,"pixels");
+		}
 		stdDimsF = Array.concat(stdDims,stdDims2);
-		iDefDimsF = indexOfArray(stdDimsF, newW, lengthOf(stdDimsF)-1);
-		if (iDefDimsF<stdDims.length) Dialog.addRadioButtonGroup("Selection width:", stdDimsF, 2, 5, d2s(stdDimsF[iDefDimsF],1));
-		else Dialog.addRadioButtonGroup("Selection width:", stdDimsF, 2, 5, stdDimsF[iDefDimsF]);
+		stdDimsFL = lengthOf(stdDimsF);
+		iDefDimsF = indexOfArray(stdDimsF, newW, stdDimsFL-1);
+		if (iDefDimsF<stdDims.length) Dialog.addRadioButtonGroup("Selection width:", stdDimsF, floor(stdDimsFL/6)+1, 6, d2s(stdDimsF[iDefDimsF],1));
+		else Dialog.addRadioButtonGroup("Selection width:", stdDimsF, floor(stdDimsFL/6)+1, 6, stdDimsF[iDefDimsF]);
 		if (selType>=0) aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "selection", "entry");
 		else aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "entry");
 		iAR = indexOfArray(aspectRatios,selAR,1);
-		Dialog.addRadioButtonGroup("Aspect ratio \(does not alter 'entry', 'fraction', 'trim' of 'non-background' widths\):", aspectRatios, 1, 5, aspectRatios[iAR]);
+		Dialog.addRadioButtonGroup("Aspect ratio \(does not alter 'entry', 'fraction', 'trim' of 'non-background' widths\):", aspectRatios, 1, lengthOf(aspectRatios), aspectRatios[iAR]);
 		orientations = newArray("landscape", "portrait");
 		iOr = indexOfArray(orientations,orientation,0);
 		Dialog.addRadioButtonGroup("Orientations:", orientations, 1, 2, orientations[iOr]);
@@ -108,7 +139,12 @@ macro "setSelection" {
 		Dialog.addCheckbox("Save selection in image folder?", saveSelection);
 	Dialog.show();
 	selTypeName = Dialog.getRadioButton();
-	if (selTypeName=="restore last selection"){
+	if (objectsBounds){
+		bBEnlX = Dialog.getNumber();
+		bBEnlY = Dialog.getNumber();
+	}
+	if (selTypeName=="bounding box") makeRectangle(BXpxsMin-floor(bBEnlX/2), BYpxsMin-floor(bBEnlY/2), BWpxs+bBEnlX, BHpxs+bBEnlY);
+	else if (selTypeName=="restore last selection"){
 		run("Restore Selection");
 		newSelType = selectionType();
 	}
@@ -245,18 +281,20 @@ macro "setSelection" {
 			roiManager("Add");
 		}
 		if(saveSelection){
-			path = getDirectory("image");
-			if (path=="") exit ("path not available");
+			selectionPath = getDirectory("image");
+			if (!File.isDirectory(selectionPath)) selectionPath = getDir("Choose a Directory to save the selection information in");
 			name = getInfo("image.filename");
-			if (name=="") exit ("name not available");
-			name = stripKnownExtensionFromString(name);
-			selectionPath = path + name + "_selection.roi";
+			if (name!="") fileName = stripKnownExtensionFromString(name);
+			else fileName = File.nameWithoutExtension;
+			if (name!="") fileName = stripKnownExtensionFromString(getTitle);
+			if (name!="")	name = "Selection-" + getDateTimeCode();
+			selectionPath += fileName + "_selection.roi";
 			saveAs("selection", selectionPath);
 		}
 		else selectionPath = "None"; /* required for prefs */
 		setSelectionsParasSt = "macroName|aspectR|fractW|fractH|startFractX|startFractY|iDefDimsF|newH|newW|selAR|selTypeName|newSelType|orientation|startX|startY|trimR|trimL|trimT|trimB|rotS|selName|addOverlay|addROI|saveSelection|selectionPath";
 		/* string of parameters separated by | delimiter - make sure first entry is NOT a number to avoid NaN errors */
-		setSelectionValues = newArray(macroName,aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,rotS,selName,addOverlay,addROI,saveSelection,selectionPath);
+		setSelectionValues = newArray(macroL,aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,rotS,selName,addOverlay,addROI,saveSelection,selectionPath);
 		/* array of corresponding to parameter list (in the same order) */
 		setSelectionValuesSt = arrayToString(setSelectionValues,"|");
 		/* Create string of values from values array */
@@ -265,7 +303,8 @@ macro "setSelection" {
 		call("ij.Prefs.set", prefsValKey, setSelectionValuesSt);
 		// print(setSelectionValuesSt);
 	}
-	showStatus("setSelection completed");
+	getSelectionBounds(selX, selY, selWidth, selHeight);
+	showStatus("X1: " + selX + ", Y1: " + selY + ", W: " + selWidth + ", H: " + selHeight + " selected");
 	call("java.lang.System.gc");
 }
 	/*
@@ -280,6 +319,16 @@ macro "setSelection" {
 			else  string = string + delimiters + array[i];
 		}
 		return string;
+	}
+	function getDateTimeCode() {
+		/* v211014 based on getDateCode v170823 */
+		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		month = month + 1; /* Month starts at zero, presumably to be used in array */
+		if(month<10) monthStr = "0" + month;
+		else monthStr = ""  + month;
+		if (dayOfMonth<10) dayOfMonth = "0" + dayOfMonth;
+		dateCodeUS = monthStr+dayOfMonth+substring(year,2)+"-"+hour+"h"+minute+"m";
+		return dateCodeUS;
 	}
 	function getPrefsFromParallelArrays (refArray,prefArray,ref,default){
 		/* refArray has a list of parameter names and prefArray has a list of values for those parameters in the same order
@@ -301,12 +350,21 @@ macro "setSelection" {
 	  return index;
 	}
 	function stripKnownExtensionFromString(string) {
+		/* v210924: Tries to make sure string stays as string
+		   v211014: Adds some additional cleanup
+		   v211025: fixes multiple knowns issue
+		*/
+		string = "" + string;
 		if (lastIndexOf(string, ".")!=-1) {
-			knownExt = newArray("tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV");
+			knownExt = newArray("dsx", "DSX", "tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV");
 			for (i=0; i<knownExt.length; i++) {
 				index = lastIndexOf(string, "." + knownExt[i]);
-				if (index>=(lengthOf(string)-(lengthOf(knownExt[i])+1))) string = substring(string, 0, index);
+				if (index>=(lengthOf(string)-(lengthOf(knownExt[i])+1)) && index>0) string = "" + substring(string, 0, index);
 			}
 		}
+		string = replace(string,"_lzw",""); /* cleanup previous suffix */
+		string = replace(string," ","_"); /* a personal preference */
+		string = replace(string,"__","_"); /* cleanup previous suffix */
+		string = replace(string,"--","-"); /* cleanup previous suffix */
 		return string;
 	}
