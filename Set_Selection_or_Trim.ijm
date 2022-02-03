@@ -14,10 +14,11 @@
 	v211208 Added "select none" and "select all" so it can replace 2 menu items. Added auto, inverse and crop options. Added image width to default options and set as maximum selection width.
 	v211209 Default width NUMERICAL sorting restored. List now includes selection width if selection exists. Crop-to option removed as it is not working as expected.
 	v211209d	Adds tight bounding box option.
-	v211221 Restored Restore Selection. v220110 Added selected height as width option
+	v211221 Restored Restore Selection. v220110 Added selected height as width option  v220120 Restored crop to selection option
+	v220202 If height cannot contain width-based aspect ration then the width will be set by the height and the aspect ratio.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220110.ijm";
+	macroL = "Set_Selection_or_Trim_v220202.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -112,11 +113,11 @@ macro "Set Selection or Trim" {
 	addOverlay = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addOverlay",false));
 	addROI = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addROI",false));
 	saveSelection = getPrefsFromParallelArrays(prefsParas,prefsVals,"saveSelection",false);
+	cropSelection = getPrefsFromParallelArrays(prefsParas,prefsVals,"cropSelection",false);
 	lastSelectionPath = getPrefsFromParallelArrays(prefsParas,prefsVals,"selectionPath","None");
 	/* End of Default/Previous value section */
 
-	Dialog.create("Selection choices");
-		Dialog.addMessage("Macro: " + macroL);
+	Dialog.create("Selection choices   \(" + macroL + "\)");
 		if (selType>=0) selectionText = "original selection";
 		else selectionText = "center of the image";
 		selectionTypes = newArray("rectangle","oval","restore selection \(Ctrl+Shift+E\)", "all \(Ctrl+A\)", "auto \(bounding box\)", "tight bounding box");
@@ -147,7 +148,7 @@ macro "Set Selection or Trim" {
 		if (selType>=0) buttonGroupTxt1 += " , original selection height = " + newH; 
 		buttonGroupTxt1 += "\):";
 		if (iDefDimsF<stdDims.length) Dialog.addRadioButtonGroup(buttonGroupTxt1, stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
-		else Dialog.addRadioButtonGroup("Fixed selection widths \(image width = " + imageWidth + "\):", stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
+		else Dialog.addRadioButtonGroup("Fixed selection widths \(image width = " + imageWidth + ", image height = " + imageHeight + "\):", stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
 		if (selType>=0) aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "selection", "entry");
 		else aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "entry");
 		Dialog.addMessage("For preset widths the new selection will be centered on the " + selectionText + ".\nThe 'entry', 'trim' and 'fraction' options also allow pixel coordinate location input.");
@@ -161,9 +162,9 @@ macro "Set Selection or Trim" {
 		Dialog.addCheckbox("Add selection to overlay?", addOverlay);
 		Dialog.addCheckbox("Add selection to ROI manager?", addROI);
 		Dialog.addCheckbox("Save selection in image folder?", saveSelection);
+		Dialog.addCheckbox("Crop to selection", cropSelection);
 		Dialog.addMessage("Use the arrow keys or drag the selection to move the selection with the mouse after the \nmacro has completed.");
 	Dialog.show();
-	// cropTo = Dialog.getCheckbox(); 
 	selTypeName = Dialog.getRadioButton();
 	tBBTolerancePc = Dialog.getNumber();
 	tBBLimitsPc = Dialog.getNumber();
@@ -182,7 +183,7 @@ macro "Set Selection or Trim" {
 			tightBoundingBox(tBBTolerancePc,tBBLimitsPc);
 			showStatus("Found tight bounding box");
 		}
-		// if (cropTo && selectionType()>=0) run("Crop");
+		if (cropSelection && selectionType()>=0) run("Crop");
 		exit;
 	}
 	if (objectsBounds){
@@ -210,6 +211,7 @@ macro "Set Selection or Trim" {
 		addOverlay = Dialog.getCheckbox();
 		addROI = Dialog.getCheckbox();
 		saveSelection = Dialog.getCheckbox();
+		cropSelection = Dialog.getCheckbox();
 		if (selSelWidth =="fraction" || selSelWidth =="entry" || selSelWidth =="non-background" || selSelWidth=="trim" ) {
 			if (selSelWidth =="fraction") {
 				Dialog.create("Fraction of original image or selection dimensions");
@@ -311,7 +313,11 @@ macro "Set Selection or Trim" {
 			else selAR = aspectR;
 			if (newOr=="landscape") aspectR = minOf(aspectR, 1/aspectR);
 			else aspectR = maxOf(aspectR, 1/aspectR);
-			newSelHeight = minOf(imageHeight,newSelWidth * aspectR);
+			if (newSelWidth*aspectR<imageHeight) newSelHeight = minOf(imageHeight,newSelWidth * aspectR);
+			else {
+				newSelHeight = imageHeight;
+				newSelWidth = newSelHeight/aspectR;
+			}
 			startX = maxOf(0,round((imageWidth-newSelWidth)/2));
 			startY = maxOf(0,round((imageHeight-newSelHeight)/2));
 			if (newSelType==0) makeRectangle(startX, startY, newSelWidth, newSelHeight);
@@ -338,9 +344,9 @@ macro "Set Selection or Trim" {
 			saveAs("selection", selectionPath);
 		}
 		else selectionPath = "None"; /* required for prefs */
-		setSelectionsParasSt = "macroName|aspectR|fractW|fractH|startFractX|startFractY|iDefDimsF|newH|newW|selAR|selTypeName|newSelType|orientation|startX|startY|trimR|trimL|trimT|trimB|rotS|selName|addOverlay|addROI|saveSelection|selectionPath";
+		setSelectionsParasSt = "macroName|aspectR|fractW|fractH|startFractX|startFractY|iDefDimsF|newH|newW|selAR|selTypeName|newSelType|orientation|startX|startY|trimR|trimL|trimT|trimB|rotS|selName|addOverlay|addROI|saveSelection|cropSelection|selectionPath";
 		/* string of parameters separated by | delimiter - make sure first entry is NOT a number to avoid NaN errors */
-		setSelectionValues = newArray(macroL,aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,rotS,selName,addOverlay,addROI,saveSelection,selectionPath);
+		setSelectionValues = newArray(macroL,aspectR,fractW,fractH,startFractX,startFractY,iDefDimsF,newH,newW,selAR,selTypeName,newSelType,orientation,startX,startY,trimR,trimL,trimT,trimB,rotS,selName,addOverlay,addROI,saveSelection,cropSelection,selectionPath);
 		/* array of corresponding to parameter list (in the same order) */
 		setSelectionValuesSt = arrayToString(setSelectionValues,"|");
 		/* Create string of values from values array */
@@ -351,7 +357,7 @@ macro "Set Selection or Trim" {
 	}
 	getSelectionBounds(selX, selY, selWidth, selHeight);
 	showStatus("X1: " + selX + ", Y1: " + selY + ", W: " + selWidth + ", H: " + selHeight + " selected");
-	// if (cropTo && selectionType()>=0) run("Crop");
+	if (cropSelection && selectionType()>=0) run("Crop");
 	call("java.lang.System.gc");
 	/* End of Set Selection or Trim macro */
 }
