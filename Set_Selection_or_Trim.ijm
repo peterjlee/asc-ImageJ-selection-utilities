@@ -14,11 +14,13 @@
 	v211208 Added "select none" and "select all" so it can replace 2 menu items. Added auto, inverse and crop options. Added image width to default options and set as maximum selection width.
 	v211209 Default width NUMERICAL sorting restored. List now includes selection width if selection exists. Crop-to option removed as it is not working as expected.
 	v211209d	Adds tight bounding box option.
-	v211221 Restored Restore Selection. v220110 Added selected height as width option  v220120 Restored crop to selection option
+	v211221 Restored Restore Selection. v220110 Added selected height as width option  v220120 Restored crop to selection option.
 	v220202 If height cannot contain width-based aspect ration then the width will be set by the height and the aspect ratio.
+	v220203 Major overhaul to reduce dialogs and allow expansion and contraction of selected ares v220204; minor tweaks.
+	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220202.ijm";
+	macroL = "Set_Selection_or_Trim_v220211.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -43,8 +45,9 @@ macro "Set Selection or Trim" {
 			call("ij.Prefs.set", prefsValKey, "none");
 		}
 	}
-	selName = "enter new name";
+	selName = "Auto-generated_name";
 	getDimensions(imageWidth, imageHeight, channels, slices, frames);
+	imageD = 0.5 * (imageWidth + imageHeight);
 	orAR = imageWidth/imageHeight;
 	objectsBounds = false;
 	if (Table.size>0){
@@ -63,7 +66,7 @@ macro "Set Selection or Trim" {
 	}
 	selType = selectionType();
 	/* Provide default or previous values */
-	stdDims = newArray(128,256,384,512,768,1024,1280,2048,2304,3072,4096,imageWidth,imageHeight);
+	stdDims = newArray(128,256,384,512,768,1024,1280,1536,1920,2048,2304,3072,3840,4096,imageWidth,imageHeight);
 	if (selType>=0){
 		getSelectionBounds(selX, selY, selWidth, selHeight);
 		startX = selX;
@@ -98,8 +101,8 @@ macro "Set Selection or Trim" {
 	selAR = getPrefsFromParallelArrays(prefsParas,prefsVals,"selAR","4:3");
 	if (aspectR>=1) orientation = getPrefsFromParallelArrays(prefsParas,prefsVals,"orientation","landscape");
 	else orientation = getPrefsFromParallelArrays(prefsParas,prefsVals,"orientation","portrait");
-	if(is("binary")) stdDims2 = newArray("entry", "fraction", "non-background", "trim");
-	else  stdDims2 = newArray("entry", "fraction", "trim");
+	if(is("binary")) stdDims2 = newArray("fraction", "non-background");
+	else  stdDims2 = newArray("fraction");
 	fractW = parseFloat(getPrefsFromParallelArrays(prefsParas,prefsVals,"fractW",0.33333));
 	fractH = parseFloat(getPrefsFromParallelArrays(prefsParas,prefsVals,"fractH",0.33333));
 	startFractX = parseFloat(getPrefsFromParallelArrays(prefsParas,prefsVals,"startFractX",(1-fractW)/2));
@@ -109,7 +112,7 @@ macro "Set Selection or Trim" {
 	trimT = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"trimT",0));
 	trimB = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"trimB",0));
 	rotS = parseFloat(getPrefsFromParallelArrays(prefsParas,prefsVals,"rotS",0));
-	selName = getPrefsFromParallelArrays(prefsParas,prefsVals,"selName",selName);
+	// selName = getPrefsFromParallelArrays(prefsParas,prefsVals,"selName",selName); /* not in use, too annoying */
 	addOverlay = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addOverlay",false));
 	addROI = parseInt(getPrefsFromParallelArrays(prefsParas,prefsVals,"addROI",false));
 	saveSelection = getPrefsFromParallelArrays(prefsParas,prefsVals,"saveSelection",false);
@@ -120,7 +123,7 @@ macro "Set Selection or Trim" {
 	Dialog.create("Selection choices   \(" + macroL + "\)");
 		if (selType>=0) selectionText = "original selection";
 		else selectionText = "center of the image";
-		selectionTypes = newArray("rectangle","oval","restore selection \(Ctrl+Shift+E\)", "all \(Ctrl+A\)", "auto \(bounding box\)", "tight bounding box");
+		selectionTypes = newArray("rectangle","oval","restore selection \(Ctrl+Shift+E\)", "all \(Ctrl+A\)", "auto BB \(bounding box\)", "tight BB \(experimental\)");
 		if (selType>=0) selectionTypes = Array.concat(selectionTypes, "existing within bounding box", "none \(Ctrl+Shift+A\)", "inverse");
 		if(lastSelectionPath!="None") selectionTypes = Array.concat(selectionTypes,"restore last saved selection");
 		if (objectsBounds){
@@ -129,17 +132,17 @@ macro "Set Selection or Trim" {
 			selectionTypes = Array.concat(selectionTypes,"bounding box");
 		}
 		iST = indexOfArray(selectionTypes,selTypeName,0);
-		// Dialog.addCheckbox("Crop to selection \(Ctrl+Shift+Alt+X\)", false);
-		Dialog.addRadioButtonGroup("Selection type \('restore' and auto options create selections and exit\):", selectionTypes, 3, 3, selectionTypes[iST]);
+		Dialog.addRadioButtonGroup("Selection type \('restore' and auto BB options create selections and exit\):", selectionTypes, 3, 3, selectionTypes[iST]);
 		if (objectsBounds){
 			Dialog.addNumber("Selection width expansion if bounding box selected",0,0,6,"pixels");
 			Dialog.addNumber("Selection height expansion if bounding box selected",0,0,6,"pixels");
 		}
-		Dialog.addMessage("Tight bounding box: Rectangular selection within the maximum extent of the background");
+		Dialog.addNumber("Auto-BB buffer \(expansion after auto\):",0,1,4,"0.5 * \(width+height\) in %");
+		Dialog.addMessage("Tight BB \(bounding box\): Rectangular selection that excludes the background");
 		Dialog.setInsets(3, 20, 3);
-		Dialog.addNumber("Tight bounding box: Intensity tolerance:",0.01,3,4,"% \(will be slow for large values\)");
+		Dialog.addNumber("Tight BB: Intensity tolerance:",0.01,3,4,"% \(will be slow for large values\)");
 		Dialog.setInsets(3, 20, 3);
-		Dialog.addNumber("Tight bounding box: Limits:",20,0,3,"% \(necessary for annotation bars\)");
+		Dialog.addNumber("Tight BB: Limits:",20,0,3,"% \(necessary for annotation bars\)");
 		stdDimsF = Array.concat(stdDimsSt,stdDims2);
 		stdDimsFL = lengthOf(stdDimsF);
 		iDefDimsF = indexOfArray(stdDimsF, newW, stdDimsFL-1);
@@ -149,11 +152,27 @@ macro "Set Selection or Trim" {
 		buttonGroupTxt1 += "\):";
 		if (iDefDimsF<stdDims.length) Dialog.addRadioButtonGroup(buttonGroupTxt1, stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
 		else Dialog.addRadioButtonGroup("Fixed selection widths \(image width = " + imageWidth + ", image height = " + imageHeight + "\):", stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
-		if (selType>=0) aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "selection", "entry");
-		else aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "entry");
-		Dialog.addMessage("For preset widths the new selection will be centered on the " + selectionText + ".\nThe 'entry', 'trim' and 'fraction' options also allow pixel coordinate location input.");
+		if (selType>=0) ctrType = "selection";
+		else ctrType = "image";
+		if (selType>=0){
+			Dialog.addMessage("Trim \(negative values\ or expand selection, leave all as zero to use preset above");
+			Dialog.addNumber("Left trim/expand",0,0,8,"last trim: " + trimL);
+			Dialog.addNumber("Top trim/expand:",0,0,8,"last trim: " + trimT);
+			Dialog.addNumber("Right trim/expand:",0,0,8,"last trim: " + trimR);
+			Dialog.addNumber("Bottom trim/exp:",0,0,8,"last trim: " + trimB);
+			aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "selection", "entry");
+		}
+		else {
+			Dialog.addMessage("Override with set coordinates or trim \(negative\), leave all as zero to use preset above");
+			Dialog.addNumber("Upper left X   / -left trim",0,0,8,"leave as 0 to to center on " + ctrType);
+			Dialog.addNumber("Upper left Y /  -top trim:",0,0,8,"leave as 0 to to center on " + ctrType);
+			Dialog.addNumber("Width         /   -right trim",0,0,8,"0 for preset above. Negative = trim");
+			Dialog.addNumber("Height     / -bottom trim",0,0,8,"\"0\": Uses AR below. Negative = trim");
+			aspectRatios = newArray("1:1", "4:3", "golden", "16:9", "entry");
+		}
+		Dialog.addMessage("The 'fraction' options uses fractions for size and location.");
 		iAR = indexOfArray(aspectRatios,selAR,1);
-		Dialog.addRadioButtonGroup("Aspect ratio \(does not alter 'entry', 'fraction', 'trim' of 'non-background' widths\):", aspectRatios, 1, lengthOf(aspectRatios), aspectRatios[iAR]);
+		Dialog.addRadioButtonGroup("Aspect Ratio \(AR does not alter 'entry', 'fraction', 'trim' of 'non-background' widths\):", aspectRatios, 1, lengthOf(aspectRatios), aspectRatios[iAR]);
 		orientations = newArray("landscape", "portrait");
 		iOr = indexOfArray(orientations,orientation,0);
 		Dialog.addRadioButtonGroup("Orientations:", orientations, 1, 2, orientations[iOr]);
@@ -165,54 +184,143 @@ macro "Set Selection or Trim" {
 		Dialog.addCheckbox("Crop to selection", cropSelection);
 		Dialog.addMessage("Use the arrow keys or drag the selection to move the selection with the mouse after the \nmacro has completed.");
 	Dialog.show();
-	selTypeName = Dialog.getRadioButton();
-	tBBTolerancePc = Dialog.getNumber();
-	tBBLimitsPc = Dialog.getNumber();
-	if(startsWith(selTypeName,"none") || startsWith(selTypeName,"restore selection") ||startsWith(selTypeName,"all") || startsWith(selTypeName,"auto") || startsWith(selTypeName,"inverse") || startsWith(selTypeName,"existing") || startsWith(selTypeName,"tight")){
-		if (startsWith(selTypeName,"none")) run("Select None");
-		if (startsWith(selTypeName,"restore selection")) run("Restore Selection");
-		else if (startsWith(selTypeName,"all")) run("Select All");
-		else if (startsWith(selTypeName,"auto")){
-			run("Select None");
-			run("Select Bounding Box (guess background color)");
+		selTypeName = Dialog.getRadioButton();
+		if (objectsBounds){
+			bBEnlX = Dialog.getNumber();
+			bBEnlY = Dialog.getNumber();
 		}
-		else if (startsWith(selTypeName,"existing")) run("Select Bounding Box (guess background color)");
-		else if (startsWith(selTypeName,"inverse")) run("Make Inverse");
-		else if (startsWith(selTypeName,"tight")){
-			showStatus("Finding tight bounding box");
-			tightBoundingBox(tBBTolerancePc,tBBLimitsPc);
-			showStatus("Found tight bounding box");
-		}
-		if (cropSelection && selectionType()>=0) run("Crop");
-		exit;
-	}
-	if (objectsBounds){
-		bBEnlX = Dialog.getNumber();
-		bBEnlY = Dialog.getNumber();
-	}
-	if (selTypeName=="bounding box") makeRectangle(BXpxsMin-floor(bBEnlX/2), BYpxsMin-floor(bBEnlY/2), BWpxs+bBEnlX, BHpxs+bBEnlY);
-	else if (selTypeName=="restore last selection"){
-		run("Restore Selection");
-		newSelType = selectionType();
-	}
-	else if (selTypeName=="restore last saved selection"){
-		open(lastSelectionPath);
-		newSelType = selectionType();
-	}
-	else {
-		if (selTypeName=="oval") newSelType = 1;
-		else newSelType = 0;
+		aBuffer = Dialog.getNumber();
+		tBBTolerancePc = Dialog.getNumber();
+		tBBLimitsPc = Dialog.getNumber();
 		selSelWidth = Dialog.getRadioButton();
+		startX = Dialog.getNumber;
+		startY = Dialog.getNumber;
+		newW = Dialog.getNumber;
+		newH = Dialog.getNumber;
 		selAR = Dialog.getRadioButton();
 		newOr = Dialog.getRadioButton();
 		rotS = Dialog.getNumber();
 		selName = Dialog.getString();
-		if (selName=="") selName = "enter new name";
+		if (selName=="") selName = "Auto-generated_name";
+		else if (selName=="Auto-generated_name") selName = selTypeName + ": width = " + selSelWidth;
 		addOverlay = Dialog.getCheckbox();
 		addROI = Dialog.getCheckbox();
 		saveSelection = Dialog.getCheckbox();
 		cropSelection = Dialog.getCheckbox();
-		if (selSelWidth =="fraction" || selSelWidth =="entry" || selSelWidth =="non-background" || selSelWidth=="trim" ) {
+		if(startsWith(selTypeName,"none") || startsWith(selTypeName,"restore selection") ||startsWith(selTypeName,"all") || startsWith(selTypeName,"auto") || startsWith(selTypeName,"inverse") || startsWith(selTypeName,"existing") || startsWith(selTypeName,"tight")){
+			if (startsWith(selTypeName,"none")) run("Select None");
+			if (startsWith(selTypeName,"restore selection")) run("Restore Selection");
+			else if (startsWith(selTypeName,"all")) run("Select All");
+			else if (startsWith(selTypeName,"auto")){
+				run("Select None");
+				run("Select Bounding Box (guess background color)");
+				if (aBuffer>0) {
+					enlargePix = maxOf(2,round(aBuffer * imageD/100));
+					run("Enlarge...", "enlarge=&enlargePix pixel");
+				}
+				if (cropSelection && selectionType()>=0) run("Crop"); /* assume that if any umber is put in then at least 1 pixel buffer is desired */
+				updateDisplay();
+				exit;
+			}
+			else if (startsWith(selTypeName,"existing")) run("Select Bounding Box (guess background color)");
+			else if (startsWith(selTypeName,"inverse")) run("Make Inverse");
+			else if (startsWith(selTypeName,"tight")){
+				showStatus("Finding tight bounding box");
+				tightBoundingBox(tBBTolerancePc,tBBLimitsPc);
+				showStatus("Found tight bounding box");
+				if (aBuffer>0) {
+					enlargePix = maxOf(2,round(aBuffer * imageD/100)); /* assume that if any umber is put in then at least 1 pixel buffer is desired */
+					run("Enlarge...", "enlarge=&enlargePix pixel");
+				}
+			}
+			if (cropSelection && selectionType()>=0) run("Crop");
+			updateDisplay();
+			exit;
+		}
+		if (selTypeName=="bounding box") makeRectangle(BXpxsMin-floor(bBEnlX/2), BYpxsMin-floor(bBEnlY/2), BWpxs+bBEnlX, BHpxs+bBEnlY);
+		else if (selTypeName=="restore last selection"){
+			run("Restore Selection");
+			newSelType = selectionType();
+		}
+		else if (selTypeName=="restore last saved selection"){
+			open(lastSelectionPath);
+			newSelType = selectionType();
+		}
+		else {
+			if (selTypeName=="oval") newSelType = 1;
+			else newSelType = 0;
+		}
+		if (selType<0 && newW>0 && newH>0){
+			aspectR = newW/newH;
+			selSelWidth = newW; /* just so it is not a "fraction" */
+		}
+		else {
+			if (selAR=="1:1") aspectR = 1;
+			else if (selAR=="4:3")  aspectR = 3/4;
+			else if (selAR=="golden") aspectR = 1.61803398875;
+			else if (selAR=="16:9") aspectR = 16/9;
+			else if (selAR=="entry") {
+				Dialog.create("Enter desired aspect ratio");
+				Dialog.addNumber("Aspect Ratio", aspectR);
+				Dialog.show();
+				aspectR = Dialog.getNumber();	
+			}
+			else selAR = aspectR;
+			if (newOr=="landscape") aspectR = maxOf(aspectR, 1/aspectR);
+			else aspectR = minOf(aspectR, 1/aspectR);
+		}
+		if (selType<0){
+			if (newH<0 || newW<0 || startX<0 || startY<0) selSelWidth="trim";
+			else {
+				if (newH>0 || newW>0 || startX>0 || startY>0){ 
+					if (newW==0 && newH>0) {
+						newW1 = aspectR  * newH;
+						if (newW1>imageWidth){
+							newW = imageWidth;
+							newH = newH * imageWidth/newW1;
+						}
+						else newW = newW1;
+					}
+					else if (newW>0 && newH==0){
+						newH1 = newW/aspectR;
+						if (newH1>imageHeight){
+							newH = imageHeight;
+							newW = newW * imageHeight/newH1;
+						}
+						else newH = newH1;
+					}
+					// selSelWidth = newW;
+					// selSelHeight = newH;
+					newSelHeight = newH;
+					newSelWidth = newW;
+				}
+				else if (newW==0 && newH==0){
+					newSelWidth = parseFloat(selSelWidth);
+					if (newSelWidth/aspectR<imageHeight) newSelHeight = minOf(imageHeight,newSelWidth/aspectR);
+					else {
+						newSelHeight = imageHeight;
+						newSelWidth = imageHeight * aspectR;
+					}
+				}
+				else {
+					newSelHeight = imageHeight;
+					newSelWidth = newSelHeight * aspectR;
+				}
+			selSelWidth="values"; /* overrides "trim" */
+			}
+		}
+		else {
+			if (newH!=0 || newW!=0 || startX!=0 || startY!=0) selSelWidth="trim";
+			else if (selSelWidth!="fraction"){
+				newSelWidth = minOf(selWidth,parseFloat(selSelWidth));
+				newSelHeight =  newSelWidth / aspectR;
+				if (newSelHeight>imageHeight){
+					newSelHeight = selHeight;
+					newSelWidth = newSelHeight * aspectR;
+				}
+			}
+		}
+		if (selSelWidth =="fraction" || selSelWidth =="non-background" || selSelWidth=="trim" ) {
 			if (selSelWidth =="fraction") {
 				Dialog.create("Fraction of original image or selection dimensions");
 					if (selType!=-1) Dialog.addMessage("Original selection type = " + selType);
@@ -244,20 +352,6 @@ macro "Set Selection or Trim" {
 					else makeOval(x, y, w, h);
 				}
 			}
-			else if (selSelWidth =="entry") {
-				Dialog.create("Enter pixel values for new selection");
-					Dialog.addNumber("Upper left X:", startX);
-					Dialog.addNumber("Upper left Y:", startY);
-					Dialog.addNumber("Width:", newW);
-					Dialog.addNumber("Height:", newH);
-				Dialog.show();
-					startX = Dialog.getNumber;
-					startY = Dialog.getNumber;
-					newW = Dialog.getNumber;
-					newH = Dialog.getNumber;
-				if (newSelType==0) makeRectangle(startX, startY, newW, newH);
-				else makeOval(startX, startY, newW, newH);
-			}
 			else if (selSelWidth =="non-background") {
 				run("Create Selection");
 				run("To Bounding Box");
@@ -268,56 +362,21 @@ macro "Set Selection or Trim" {
 				if (enlargeP!=0) run("Enlarge...", "enlarge=&enlargeP pixel");
 			}
 			else if (selSelWidth =="trim") {
-				Dialog.create("Select trim in pixels");
-					Dialog.addNumber("Trim from right by:", trimR);
-					Dialog.addNumber("Trim from left by:", trimL);
-					Dialog.addNumber("Trim from top by:", trimT);
-					Dialog.addNumber("Trim from bottom by:", trimB);
-				Dialog.show();
-					trimR = Dialog.getNumber;
-					trimL = Dialog.getNumber;
-					trimT = Dialog.getNumber;
-					trimB = Dialog.getNumber;
-				if (selType!=-1) {
-					if (newSelType==0) makeRectangle(selX+trimL, selY+trimT, selWidth-(trimL+trimR), selHeight-(trimT+trimB));
-					else makeOval(selX+trimL, selY+trimT, selWidth-(trimL+trimR), selHeight-(trimT+trimB));
+				trimL = startX;
+				trimT = startY;
+				trimR = newW;
+				trimB = newH;
+				if (selType>=0) {
+					if (newSelType==0) makeRectangle(selX-trimL, selY-trimT, selWidth+trimL+trimR, selHeight+trimT+trimB);
+					else makeOval(selX-trimL, selY-trimT, selWidth+trimL+trimR, selHeight+trimT+trimB);
 				}
 				else {
-					if (newSelType==0) makeRectangle(trimL, trimT, imageWidth-(trimL+trimR), imageHeight-(trimT+trimB));
-					else makeOval(trimL, trimT, imageWidth-(trimL+trimR), imageHeight-(trimT+trimB));
+					if (newSelType==0) makeRectangle(-trimL, -trimT, imageWidth+trimL+trimR, imageHeight+trimT+trimB);
+					else makeOval(-trimL, -trimT, imageWidth+trimL+trimR, imageHeight+trimT+trimB);
 				}
 			}
 		}
 		else {
-			newSelWidth = parseFloat(selSelWidth);
-			if (selAR=="1:1") aspectR = 1;
-			else if (selAR=="4:3") {
-				if (newOr=="landscape") aspectR = 4/3;
-				else aspectR = 3/4;
-			}
-			else if (selAR=="golden") {
-				goldenR = 1.61803398875;
-				if (newOr=="landscape") aspectR = goldenR;
-				else aspectR = 1/goldenR;
-			}
-			else if (selAR=="16:9") {
-				if (newOr=="landscape") aspectR = 16/9;
-				else aspectR = 9/16;
-			}
-			else if (selAR=="entry") {
-				Dialog.create("Enter desired aspect ratio");
-				Dialog.addNumber("Aspect Ratio", aspectR);
-				Dialog.show();
-				aspectR = Dialog.getNumber();	
-			}
-			else selAR = aspectR;
-			if (newOr=="landscape") aspectR = minOf(aspectR, 1/aspectR);
-			else aspectR = maxOf(aspectR, 1/aspectR);
-			if (newSelWidth*aspectR<imageHeight) newSelHeight = minOf(imageHeight,newSelWidth * aspectR);
-			else {
-				newSelHeight = imageHeight;
-				newSelWidth = newSelHeight/aspectR;
-			}
 			startX = maxOf(0,round((imageWidth-newSelWidth)/2));
 			startY = maxOf(0,round((imageHeight-newSelHeight)/2));
 			if (newSelType==0) makeRectangle(startX, startY, newSelWidth, newSelHeight);
@@ -329,17 +388,17 @@ macro "Set Selection or Trim" {
 			Overlay.show;
 		}
 		if (addROI) {
-			if (selName!="enter new name") Roi.setName(selName);
+			if (selName!="Auto-generated_name" && selName!="") Roi.setName(selName);
 			roiManager("Add");
 		}
 		if(saveSelection){
 			selectionPath = getDirectory("image");
 			if (!File.isDirectory(selectionPath)) selectionPath = getDir("Choose a Directory to save the selection information in");
 			name = getInfo("image.filename");
-			if (name!="") fileName = stripKnownExtensionFromString(name);
+			if (name!=0) fileName = stripKnownExtensionFromString(name);
 			else fileName = File.nameWithoutExtension;
-			if (name!="") fileName = stripKnownExtensionFromString(getTitle);
-			if (name!="")	name = "Selection-" + getDateTimeCode();
+			if (name!=0) fileName = stripKnownExtensionFromString(getTitle);
+			if (name!=0)	name = "Selection-" + getDateTimeCode();
 			selectionPath += fileName + "_selection.roi";
 			saveAs("selection", selectionPath);
 		}
