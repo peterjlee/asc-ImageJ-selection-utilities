@@ -10,17 +10,18 @@
 	v211006 Fixed empty table and box issue.
 	v211014 Fixed path issue.
 	v211025 Updated functions.
-	v211104 Updated stripKnownExtensionsFromString function    v211112: Again
+	v211104 Updated stripKnownExtensionFromString function    v211112: Again
 	v211208 Added "select none" and "select all" so it can replace 2 menu items. Added auto, inverse and crop options. Added image width to default options and set as maximum selection width.
 	v211209 Default width NUMERICAL sorting restored. List now includes selection width if selection exists. Crop-to option removed as it is not working as expected.
 	v211209d	Adds tight bounding box option.
 	v211221 Restored Restore Selection. v220110 Added selected height as width option  v220120 Restored crop to selection option.
 	v220202 If height cannot contain width-based aspect ration then the width will be set by the height and the aspect ratio.
 	v220203 Major overhaul to reduce dialogs and allow expansion and contraction of selected ares v220204; minor tweaks.
-	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names.
+	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names. v220224 Dialog tweaks
+	v220310-1 Added image aspect ratio correction based on selection AR.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220211.ijm";
+	macroL = "Set_Selection_or_Trim_v220311.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -73,6 +74,7 @@ macro "Set Selection or Trim" {
 		startY = selY;
 		newW = round(selWidth);
 		newH = round(selHeight);
+		orSelAR = selWidth/selHeight;
 		oldSelName = selectionName;
 		if (oldSelName!="") selName = oldSelName;
 		// run("Select None");
@@ -152,6 +154,7 @@ macro "Set Selection or Trim" {
 		buttonGroupTxt1 += "\):";
 		if (iDefDimsF<stdDims.length) Dialog.addRadioButtonGroup(buttonGroupTxt1, stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
 		else Dialog.addRadioButtonGroup("Fixed selection widths \(image width = " + imageWidth + ", image height = " + imageHeight + "\):", stdDimsF, floor(stdDimsFL/9)+1, 9, stdDimsF[iDefDimsF]);
+		Dialog.addNumber("Manual width entry:","",0,10,"pixels \(change to override above\)");
 		if (selType>=0) ctrType = "selection";
 		else ctrType = "image";
 		if (selType>=0){
@@ -173,16 +176,17 @@ macro "Set Selection or Trim" {
 		Dialog.addMessage("The 'fraction' options uses fractions for size and location.");
 		iAR = indexOfArray(aspectRatios,selAR,1);
 		Dialog.addRadioButtonGroup("Aspect Ratio \(AR does not alter 'entry', 'fraction', 'trim' of 'non-background' widths\):", aspectRatios, 1, lengthOf(aspectRatios), aspectRatios[iAR]);
-		orientations = newArray("landscape", "portrait");
-		iOr = indexOfArray(orientations,orientation,0);
-		Dialog.addRadioButtonGroup("Orientations:", orientations, 1, 2, orientations[iOr]);
+		Dialog.addCheckbox("Orientation is Landscape \(else Portrait\)",true);
 		Dialog.addNumber("Selection rotation:",rotS,5,5,"degrees");
 		Dialog.addString("Selection name:",selName,30);
-		Dialog.addCheckbox("Add selection to overlay?", addOverlay);
-		Dialog.addCheckbox("Add selection to ROI manager?", addROI);
-		Dialog.addCheckbox("Save selection in image folder?", saveSelection);
-		Dialog.addCheckbox("Crop to selection", cropSelection);
-		Dialog.addMessage("Use the arrow keys or drag the selection to move the selection with the mouse after the \nmacro has completed.");
+		checkBoxGroup1Labels = newArray("Add selection to overlay?","Add selection to ROI manager?","Save selection in image folder?","Crop to selection");
+		checkBoxGroup1Defaults = newArray(addOverlay,addROI,saveSelection,cropSelection);
+		Dialog.addCheckboxGroup(2, 2, checkBoxGroup1Labels,checkBoxGroup1Labels);
+		Dialog.addMessage("Use the arrow keys or drag the selection to move the selection with the mouse after the macro has completed",12,"#1F497D");
+		if (selType>=0){
+			Dialog.addCheckbox("Correct image calibration aspect \(selection w/h is " + orSelAR + "\) by shrinking longest dimension?",false);
+			Dialog.addNumber("Target aspect ratio \(width/height\)",1,0,2,"i.e. 1 = square");
+		}
 	Dialog.show();
 		selTypeName = Dialog.getRadioButton();
 		if (objectsBounds){
@@ -193,20 +197,40 @@ macro "Set Selection or Trim" {
 		tBBTolerancePc = Dialog.getNumber();
 		tBBLimitsPc = Dialog.getNumber();
 		selSelWidth = Dialog.getRadioButton();
+		manEntry = Dialog.getNumber();
+		if (manEntry!=NaN && manEntry>0) selSelWidth = manEntry;
+		// print ("manEntry="+manEntry+",selSelWidth="+selSelWidth);
 		startX = Dialog.getNumber;
 		startY = Dialog.getNumber;
 		newW = Dialog.getNumber;
 		newH = Dialog.getNumber;
 		selAR = Dialog.getRadioButton();
-		newOr = Dialog.getRadioButton();
+		if (Dialog.getCheckbox()) newOr = "landscape";
+		else newOr = "portrait";
 		rotS = Dialog.getNumber();
 		selName = Dialog.getString();
 		if (selName=="") selName = "Auto-generated_name";
 		else if (selName=="Auto-generated_name") selName = selTypeName + ": width = " + selSelWidth;
-		addOverlay = Dialog.getCheckbox();
-		addROI = Dialog.getCheckbox();
-		saveSelection = Dialog.getCheckbox();
-		cropSelection = Dialog.getCheckbox();
+		for (i=0; i<4; i++)
+			checkBoxGroup1Defaults[i] = Dialog.getCheckbox();
+		if (selType>=0){
+			correctAR = Dialog.getCheckbox();
+			arTarget = Dialog.getNumber();
+			if (correctAR){
+				arR = orSelAR/arTarget;
+				if (arR!=1){
+					arCTitle = "" + stripKnownExtensionFromString(getTitle()) + "_arC";
+					newImageWidth = imageWidth;
+					newImageHeight = imageHeight;
+					run("Select None");
+					if (arR>1) newImageWidth = imageWidth/arR;
+					else newImageHeight = imageHeight * arR;
+					if (slices>1) run("Scale...", "x=- y=- z=1.0 width=&newImageWidth height=&newImageHeight depth=&slices interpolation=Bicubic average process create title=&arCTitle");
+					else run("Scale...", "x=- y=- width=&newImageWidth height=&newImageHeight interpolation=Bicubic average create title=&arCTitle");
+					run("Restore Selection");
+				}
+			}
+		}
 		if(startsWith(selTypeName,"none") || startsWith(selTypeName,"restore selection") ||startsWith(selTypeName,"all") || startsWith(selTypeName,"auto") || startsWith(selTypeName,"inverse") || startsWith(selTypeName,"existing") || startsWith(selTypeName,"tight")){
 			if (startsWith(selTypeName,"none")) run("Select None");
 			if (startsWith(selTypeName,"restore selection")) run("Restore Selection");
@@ -464,11 +488,6 @@ macro "Set Selection or Trim" {
 	}
 	function stripKnownExtensionFromString(string) {
 		/*	Note: Do not use on path as it may change the directory names
-		v210924: Tries to make sure string stays as string
-		v211014: Adds some additional cleanup
-		v211025: fixes multiple knowns issue
-		v211101: Added ".Ext_" removal
-		v211104: Restricts cleanup to end of string to reduce risk of corrupting path
 		v211112: Tries to fix trapped extension before channel listing. Adds xlsx extension.
 		*/
 		string = "" + string;
