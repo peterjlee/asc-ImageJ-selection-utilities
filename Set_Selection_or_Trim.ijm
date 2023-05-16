@@ -18,10 +18,10 @@
 	v220202 If height cannot contain width-based aspect ration then the width will be set by the height and the aspect ratio.
 	v220203 Major overhaul to reduce dialogs and allow expansion and contraction of selected ares v220204; minor tweaks.
 	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names. v220224 Dialog tweaks
-	v220310-1 Added image aspect ratio correction based on selection AR. v220316 Corrected menu description
+	v220310-1 Added image aspect ratio correction based on selection AR. v220316 Corrected menu description f2: Updated stripKnownExtensionFromString function.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220316b.ijm";
+	macroL = "Set_Selection_or_Trim_v220316b-f2.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -520,36 +520,54 @@ macro "Set Selection or Trim" {
 	}
 	function stripKnownExtensionFromString(string) {
 		/*	Note: Do not use on path as it may change the directory names
+		v210924: Tries to make sure string stays as string
+		v211014: Adds some additional cleanup
+		v211025: fixes multiple knowns issue
+		v211101: Added ".Ext_" removal
+		v211104: Restricts cleanup to end of string to reduce risk of corrupting path
 		v211112: Tries to fix trapped extension before channel listing. Adds xlsx extension.
+		v220615: Tries to fix the fix for the trapped extensions ...
+		v230504: Protects directory path if included in string. Only removes doubled spaces and lines.
+		v230505: Unwanted dupes replaced by unusefulCombos.
 		*/
+		fS = File.separator;
 		string = "" + string;
-		if (lastIndexOf(string, ".")>0 || lastIndexOf(string, "_lzw")>0) {
-			knownExt = newArray("dsx", "DSX", "tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV","xlsx","XLSX","_"," ");
-			kEL = lengthOf(knownExt);
-			chanLabels = newArray("\(red\)","\(green\)","\(blue\)");
-			unwantedSuffixes = newArray("_lzw"," ","  ", "__","--","_","-");
-			uSL = lengthOf(unwantedSuffixes);
-			for (i=0; i<kEL; i++) {
-				for (j=0; j<3; j++){ /* Looking for channel-label-trapped extensions */
-					ichanLabels = lastIndexOf(string, chanLabels[j]);
-					if(ichanLabels>0){
-						index = lastIndexOf(string, "." + knownExt[i]);
-						if (ichanLabels>index && index>0) string = "" + substring(string, 0, index) + "_" + chanLabels[j];
-						ichanLabels = lastIndexOf(string, chanLabels[j]);
-						for (k=0; k<uSL; k++){
-							index = lastIndexOf(string, unwantedSuffixes[k]);  /* common ASC suffix */
-							if (ichanLabels>index && index>0) string = "" + substring(string, 0, index) + "_" + chanLabels[j];	
-						}				
-					}
-				}
-				index = lastIndexOf(string, "." + knownExt[i]);
-				if (index>=(lengthOf(string)-(lengthOf(knownExt[i])+1)) && index>0) string = "" + substring(string, 0, index);
+		protectedPathEnd = lastIndexOf(string,fS)+1;
+		if (protectedPathEnd>0){
+			protectedPath = substring(string,0,protectedPathEnd);
+			string = substring(string,protectedPathEnd);
+		}
+		unusefulCombos = newArray("-", "_"," ");
+		for (i=0; i<lengthOf(unusefulCombos); i++){
+			for (j=0; j<lengthOf(unusefulCombos); j++){
+				combo = unusefulCombos[i] + unusefulCombos[j];
+				while (indexOf(string,combo)>=0) string = replace(string,combo,unusefulCombos[i]);
 			}
 		}
-		unwantedSuffixes = newArray("_lzw"," ","  ", "__","--","_","-");
-		for (i=0; i<lengthOf(unwantedSuffixes); i++){
-			sL = lengthOf(string);
-			if (endsWith(string,unwantedSuffixes[i])) string = substring(string,0,sL-lengthOf(unwantedSuffixes[i])); /* cleanup previous suffix */
+		if (lastIndexOf(string, ".")>0 || lastIndexOf(string, "_lzw")>0) {
+			knownExt = newArray("dsx", "DSX", "tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV","xlsx","XLSX");
+			kEL = knownExt.length;
+			chanLabels = newArray("\(red\)","\(green\)","\(blue\)");
+			for (i=0; i<kEL; i++) {
+				kExtn = "." + knownExt[i];
+				for (j=0; j<3; j++){ /* Looking for channel-label-trapped extensions */
+					iChanLabels = lastIndexOf(string, chanLabels[j])-1;
+					if (iChanLabels>0){
+						preChan = substring(string,0,iChanLabels);
+						postChan = substring(string,iChanLabels);
+						while (indexOf(preChan,kExtn)>=0) string = replace(preChan,kExtn,"") + postChan;
+					}
+				}
+				while (endsWith(string,kExtn)) string = "" + substring(string, 0, lastIndexOf(string, kExtn));
+			}
+		}
+		unwantedSuffixes = newArray("_lzw"," ", "_","-");
+		for (i=0; i<unwantedSuffixes.length; i++){
+			while (endsWith(string,unwantedSuffixes[i])) string = substring(string,0,string.length-lengthOf(unwantedSuffixes[i])); /* cleanup previous suffix */
+		}
+		if (protectedPathEnd>0){
+			if(!endsWith(protectedPath,fS)) protectedPath += fS;
+			string = protectedPath + string;
 		}
 		return string;
 	}
