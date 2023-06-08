@@ -18,10 +18,10 @@
 	v220202 If height cannot contain width-based aspect ration then the width will be set by the height and the aspect ratio.
 	v220203 Major overhaul to reduce dialogs and allow expansion and contraction of selected ares v220204; minor tweaks.
 	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names. v220224 Dialog tweaks
-	v220310-1 Added image aspect ratio correction based on selection AR. v220316 Corrected menu description f2: Updated stripKnownExtensionFromString function.
+	v220310-1 Added image aspect ratio correction based on selection AR. v220316 Corrected menu description f2-f3: Updated stripKnownExtensionFromString function.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220316b-f2.ijm";
+	macroL = "Set_Selection_or_Trim_v220316b-f3.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -529,6 +529,7 @@ macro "Set Selection or Trim" {
 		v220615: Tries to fix the fix for the trapped extensions ...
 		v230504: Protects directory path if included in string. Only removes doubled spaces and lines.
 		v230505: Unwanted dupes replaced by unusefulCombos.
+		v230607: Quick fix for infinite loop on one of while statements.
 		*/
 		fS = File.separator;
 		string = "" + string;
@@ -548,14 +549,17 @@ macro "Set Selection or Trim" {
 			knownExt = newArray("dsx", "DSX", "tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV","xlsx","XLSX");
 			kEL = knownExt.length;
 			chanLabels = newArray("\(red\)","\(green\)","\(blue\)");
-			for (i=0; i<kEL; i++) {
+			for (i=0,k=0; i<kEL; i++) {
 				kExtn = "." + knownExt[i];
 				for (j=0; j<3; j++){ /* Looking for channel-label-trapped extensions */
 					iChanLabels = lastIndexOf(string, chanLabels[j])-1;
 					if (iChanLabels>0){
 						preChan = substring(string,0,iChanLabels);
 						postChan = substring(string,iChanLabels);
-						while (indexOf(preChan,kExtn)>=0) string = replace(preChan,kExtn,"") + postChan;
+						while (indexOf(preChan,kExtn)>=0 && k<10){  /* k counter quick fix for infinite loop */
+							string = replace(preChan,kExtn,"") + postChan;
+							k++;
+						}
 					}
 				}
 				while (endsWith(string,kExtn)) string = "" + substring(string, 0, lastIndexOf(string, kExtn));
