@@ -19,9 +19,10 @@
 	v220203 Major overhaul to reduce dialogs and allow expansion and contraction of selected ares v220204; minor tweaks.
 	v220211 Added expansion option for auto-select, reorganized menus for better fit, fixed AR-based selections to respect image dimensions. Added auto selection names. v220224 Dialog tweaks
 	v220310-1 Added image aspect ratio correction based on selection AR. v220316 Corrected menu description f2-f3: Updated stripKnownExtensionFromString function.
+	v230803: Replaced getDir for 1.54g10. F1: Updated indexOf functions.
 	*/
 macro "Set Selection or Trim" {
-	macroL = "Set_Selection_or_Trim_v220316b-f3.ijm";
+	macroL = "Set_Selection_or_Trim_v230803-f1.ijm";
 	delimiter = "|";
 	prefsNameKey = "ascSetSelection.";
 	prefsParaKey = prefsNameKey+"Parameters";
@@ -442,7 +443,7 @@ macro "Set Selection or Trim" {
 	}
 	if(saveSelection){
 		selectionPath = getDirectory("image");
-		if (!File.isDirectory(selectionPath)) selectionPath = getDir("Choose a Directory to save the selection information in");
+		if (!File.isDirectory(selectionPath)) selectionPath = getDirectory("Choose a Directory to save the selection information in");
 		name = getInfo("image.filename");
 		if (name!=0) fileName = stripKnownExtensionFromString(name);
 		else fileName = File.nameWithoutExtension;
@@ -508,8 +509,9 @@ macro "Set Selection or Trim" {
 		return pref;
 	}
 	function indexOfArray(array, value, default) {
-		/* v190423 Adds "default" parameter (use -1 for backwards compatibility). Returns only first found value */
-		index = default;
+		/* v190423 Adds "default" parameter (use -1 for backwards compatibility). Returns only first found value
+			v230902 Limits default value to array size */
+		index = minOf(lengthOf(array) - 1, default);
 		for (i=0; i<lengthOf(array); i++){
 			if (array[i]==value) {
 				index = i;
@@ -520,16 +522,11 @@ macro "Set Selection or Trim" {
 	}
 	function stripKnownExtensionFromString(string) {
 		/*	Note: Do not use on path as it may change the directory names
-		v210924: Tries to make sure string stays as string
-		v211014: Adds some additional cleanup
-		v211025: fixes multiple knowns issue
-		v211101: Added ".Ext_" removal
-		v211104: Restricts cleanup to end of string to reduce risk of corrupting path
-		v211112: Tries to fix trapped extension before channel listing. Adds xlsx extension.
-		v220615: Tries to fix the fix for the trapped extensions ...
-		v230504: Protects directory path if included in string. Only removes doubled spaces and lines.
-		v230505: Unwanted dupes replaced by unusefulCombos.
-		v230607: Quick fix for infinite loop on one of while statements.
+		v210924: Tries to make sure string stays as string.	v211014: Adds some additional cleanup.	v211025: fixes multiple 'known's issue.	v211101: Added ".Ext_" removal.
+		v211104: Restricts cleanup to end of string to reduce risk of corrupting path.	v211112: Tries to fix trapped extension before channel listing. Adds xlsx extension.
+		v220615: Tries to fix the fix for the trapped extensions ...	v230504: Protects directory path if included in string. Only removes doubled spaces and lines.
+		v230505: Unwanted dupes replaced by unusefulCombos.	v230607: Quick fix for infinite loop on one of while statements.
+		v230614: Added AVI.	v230905: Better fix for infinite loop. v230914: Added BMP and "_transp" and rearranged
 		*/
 		fS = File.separator;
 		string = "" + string;
@@ -546,26 +543,27 @@ macro "Set Selection or Trim" {
 			}
 		}
 		if (lastIndexOf(string, ".")>0 || lastIndexOf(string, "_lzw")>0) {
-			knownExt = newArray("dsx", "DSX", "tif", "tiff", "TIF", "TIFF", "png", "PNG", "GIF", "gif", "jpg", "JPG", "jpeg", "JPEG", "jp2", "JP2", "txt", "TXT", "csv", "CSV","xlsx","XLSX");
-			kEL = knownExt.length;
-			chanLabels = newArray("\(red\)","\(green\)","\(blue\)");
+			knownExts = newArray(".avi", ".csv", ".bmp", ".dsx", ".gif", ".jpg", ".jpeg", ".jp2", ".png", ".tif", ".txt", ".xlsx");
+			knownExts = Array.concat(knownExts,knownExts,"_transp","_lzw");
+			kEL = knownExts.length;
+			for (i=0; i<kEL/2; i++) knownExts[i] = toUpperCase(knownExts[i]);
+			chanLabels = newArray(" \(red\)"," \(green\)"," \(blue\)","\(red\)","\(green\)","\(blue\)");
 			for (i=0,k=0; i<kEL; i++) {
-				kExtn = "." + knownExt[i];
-				for (j=0; j<3; j++){ /* Looking for channel-label-trapped extensions */
+				for (j=0; j<chanLabels.length; j++){ /* Looking for channel-label-trapped extensions */
 					iChanLabels = lastIndexOf(string, chanLabels[j])-1;
 					if (iChanLabels>0){
 						preChan = substring(string,0,iChanLabels);
 						postChan = substring(string,iChanLabels);
-						while (indexOf(preChan,kExtn)>=0 && k<10){  /* k counter quick fix for infinite loop */
-							string = replace(preChan,kExtn,"") + postChan;
-							k++;
+						while (indexOf(preChan,knownExts[i])>0){
+							preChan = replace(preChan,knownExts[i],"");
+							string =  preChan + postChan;
 						}
 					}
 				}
-				while (endsWith(string,kExtn)) string = "" + substring(string, 0, lastIndexOf(string, kExtn));
+				while (endsWith(string,knownExts[i])) string = "" + substring(string, 0, lastIndexOf(string, knownExts[i]));
 			}
 		}
-		unwantedSuffixes = newArray("_lzw"," ", "_","-");
+		unwantedSuffixes = newArray(" ", "_","-");
 		for (i=0; i<unwantedSuffixes.length; i++){
 			while (endsWith(string,unwantedSuffixes[i])) string = substring(string,0,string.length-lengthOf(unwantedSuffixes[i])); /* cleanup previous suffix */
 		}
